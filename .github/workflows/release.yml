@@ -1,0 +1,49 @@
+name: Release automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to deploy
+        required: true
+        type: string
+      rollback:
+        description: Run rollback instead of deployment
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-release:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOYWARDEN_DATA_DIR: ${{ runner.temp }}/deploywarden
+      DEPLOY_COMMAND: ${{ secrets.DEPLOY_COMMAND }}
+      ROLLBACK_COMMAND: ${{ secrets.ROLLBACK_COMMAND }}
+      HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install and verify safety checks
+        run: |
+          pip install -e ".[dev]"
+          pytest -q
+      - name: Scheduled health audit
+        if: github.event_name == 'schedule'
+        run: python -m deploywarden.cli status
+      - name: Deploy release
+        if: github.event_name == 'workflow_dispatch' && !inputs.rollback
+        run: deploywarden deploy "${{ inputs.version }}" --actor "github-actions:${{ github.actor }}"
+      - name: Manual rollback
+        if: github.event_name == 'workflow_dispatch' && inputs.rollback
+        run: deploywarden rollback --actor "github-actions:${{ github.actor }}"
+      - name: Emergency rollback after failed deployment
+        if: failure() && github.event_name == 'workflow_dispatch' && !inputs.rollback
+        run: deploywarden rollback --actor "github-actions:auto-rollback"

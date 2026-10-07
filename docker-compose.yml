@@ -1,0 +1,12 @@
+services:
+  deploywarden:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - deploywarden-data:/var/lib/deploywarden
+    environment:
+      HEALTHCHECK_URL: http://localhost:8000/health
+
+volumes:
+  deploywarden-data:
